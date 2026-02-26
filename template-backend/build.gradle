@@ -1,0 +1,160 @@
+plugins {
+    id 'org.springframework.boot' version '3.5.11'
+    id 'io.spring.dependency-management' version '1.1.7'
+    id 'java'
+    id 'jacoco'
+    id 'org.owasp.dependencycheck' version '12.1.0'
+    id 'org.cyclonedx.bom' version '1.10.0'
+}
+
+def resolveGitCommit = {
+    def envSha = System.getenv('GITHUB_SHA')
+    if (envSha != null && !envSha.isBlank()) {
+        return envSha.take(7)
+    }
+
+    try {
+        def stdout = new ByteArrayOutputStream()
+        exec {
+            commandLine 'git', 'rev-parse', '--short', 'HEAD'
+            standardOutput = stdout
+            errorOutput = new ByteArrayOutputStream()
+            ignoreExitValue = true
+        }
+        def value = stdout.toString().trim()
+        return value.isBlank() ? 'unknown' : value
+    } catch (Exception ignored) {
+        return 'unknown'
+    }
+}
+
+dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+    implementation 'org.springframework.boot:spring-boot-starter-validation'
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    runtimeOnly 'io.micrometer:micrometer-registry-prometheus'
+    implementation 'org.flywaydb:flyway-core'
+    implementation 'org.flywaydb:flyway-mysql'
+    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.9'
+    implementation 'io.github.resilience4j:resilience4j-spring-boot3:2.3.0'
+    implementation 'io.github.resilience4j:resilience4j-micrometer:2.3.0'
+    implementation 'org.apache.commons:commons-csv:1.10.0'
+    developmentOnly 'org.springframework.boot:spring-boot-devtools'
+
+    runtimeOnly 'com.h2database:h2'
+    runtimeOnly 'com.mysql:mysql-connector-j'
+    runtimeOnly 'org.postgresql:postgresql'
+
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.testcontainers:junit-jupiter'
+    testImplementation 'org.testcontainers:mysql'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+tasks.named('test', Test) {
+    useJUnitPlatform()
+    exclude '**/*IT.class'
+    finalizedBy tasks.named('jacocoTestReport')
+}
+
+tasks.register('integrationTest', Test) {
+    description = 'Runs MySQL-backed integration tests.'
+    group = 'verification'
+    useJUnitPlatform()
+    include '**/*IT.class'
+    shouldRunAfter tasks.named('test')
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+}
+
+jacoco {
+    toolVersion = '0.8.12'
+}
+
+tasks.named('jacocoTestReport', JacocoReport) {
+    dependsOn tasks.named('test')
+    reports {
+        xml.required = true
+        html.required = true
+        csv.required = false
+    }
+}
+
+tasks.named('jacocoTestCoverageVerification', JacocoCoverageVerification) {
+    dependsOn tasks.named('jacocoTestReport')
+    violationRules {
+        rule {
+            element = 'BUNDLE'
+            limit {
+                counter = 'LINE'
+                value = 'COVEREDRATIO'
+                minimum = 0.75
+            }
+        }
+    }
+}
+
+tasks.named('check') {
+    dependsOn tasks.named('integrationTest')
+    dependsOn tasks.named('jacocoTestCoverageVerification')
+}
+
+dependencyCheck {
+    failBuildOnCVSS = 7.0
+    formats = ['HTML', 'JSON']
+    nvd {
+        apiKey = (System.getenv('NVD_API_KEY') ?: (findProperty('nvdApiKey') as String)) ?: ''
+    }
+    analyzers {
+        assemblyEnabled = false
+        nodeAuditEnabled = false
+        ossIndexEnabled = false
+    }
+}
+
+tasks.register('securityScan') {
+    description = 'Runs dependency vulnerability scan and generates SBOM.'
+    group = 'verification'
+    dependsOn tasks.named('dependencyCheckAnalyze')
+    dependsOn tasks.named('cyclonedxBom')
+}
+
+tasks.named('bootJar') {
+    manifest {
+        attributes(
+                'Implementation-Title': 'template-backend',
+                'Implementation-Version': project.version.toString(),
+                'Implementation-Commit': resolveGitCommit()
+        )
+    }
+}
+
+tasks.named('bootRun', org.springframework.boot.gradle.tasks.run.BootRun) {
+    description = 'Runs the backend for local development (mysql profile).'
+    args '--spring.profiles.active=mysql'
+}
+
+tasks.register('bootRunSeed', org.springframework.boot.gradle.tasks.run.BootRun) {
+    group = 'application'
+    description = 'Runs the backend with demo seed profile enabled.'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.temadison.stockdash.backend.StockDashboardApplication'
+    args '--spring.profiles.active=seed'
+}
+
+tasks.register('bootRunSeedLocal', org.springframework.boot.gradle.tasks.run.BootRun) {
+    group = 'application'
+    description = 'Runs the backend with local seed profile enabled.'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.temadison.stockdash.backend.StockDashboardApplication'
+    args '--spring.profiles.active=seed-local'
+}
+
+tasks.register('bootRunMysql', org.springframework.boot.gradle.tasks.run.BootRun) {
+    group = 'application'
+    description = 'Runs the backend with mysql profile enabled.'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.temadison.stockdash.backend.StockDashboardApplication'
+    args '--spring.profiles.active=mysql'
+}

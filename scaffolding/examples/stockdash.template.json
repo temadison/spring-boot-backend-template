@@ -1,0 +1,16 @@
+{
+  "project": {
+    "displayName": "Stock Dashboard",
+    "rootProjectName": "stock-dashboard",
+    "moduleName": "stockdash-backend",
+    "artifactId": "stockdash-backend",
+    "groupId": "com.temadison",
+    "version": "1.0-SNAPSHOT",
+    "basePackage": "com.temadison.stockdash.backend",
+    "appClassName": "StockDashboardApplication",
+    "appPort": 18090,
+    "dbName": "stockdash",
+    "dbUser": "stockdash_app",
+    "envPrefix": "STOCKDASH"
+  }
+}
